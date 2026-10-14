@@ -18,7 +18,7 @@ wake word, without changing the protocol.
 
 | Topic | Decision | Why |
 |---|---|---|
-| Robot board | Classic ESP32 (DevKit) | What you have. Too little RAM for TLS audio to cloud AI APIs directly, so it acts as a thin audio terminal. |
+| Robot board | Classic ESP32: ESP32-WROOM-32D DevKit, 38 pins, CP2102 USB, 4 MB flash, no PSRAM | What you have. Too little RAM for TLS audio to cloud AI APIs directly, so it acts as a thin audio terminal. |
 | Starting a turn | Press the BOOT button once, then talk; server ends the turn on a ~0.7 s pause. Press again to cancel. | No wake word possible on classic ESP32. Same feel as a future wake word. |
 | Server | This Python project, running on the laptop (`robot serve`) | No hosting cost now; VPS later. |
 | Speech-to-text | OpenAI `gpt-4o-transcribe`, no language pinned | Good Persian and English. Local Farsi Whisper stays available via `--stt whisper`. |
@@ -132,7 +132,7 @@ current OpenAI docs during implementation, not hard-coded from memory.
 
 ## Robot
 
-### Wiring (classic ESP32 DevKit)
+### Wiring (ESP32-WROOM-32D 38-pin DevKit)
 
 | Part | Pins |
 |---|---|
