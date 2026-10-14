@@ -23,8 +23,8 @@ wake word, without changing the protocol.
 | Server | This Python project, running on the laptop (`robot serve`) | No hosting cost now; VPS later. |
 | Speech-to-text | OpenAI `gpt-4o-transcribe`, no language pinned | Good Persian and English. Local Farsi Whisper stays available via `--stt whisper`. |
 | Brain | OpenAI chat model | Same provider, one API key. |
-| Voice | Azure Speech neural voices (free tier); `edge-tts` fallback | Natural Persian + English; Azure is the official route, edge-tts is free but unofficial. |
-| Mixed sentences | Split by script; Persian voice for Persian runs, English voice for English runs | Your choice. |
+| Voice | Azure Speech neural voices (free tier) only, no fallback | Natural Persian + English through an official service. |
+| Mixed sentences | One voice per reply: the Persian voice if the reply contains any Persian letters, the English voice only for fully English replies | Your choice; avoids switching voices mid-sentence. |
 | Firmware | Arduino C++ via PlatformIO | Mature I2S, WebSocket and LCD libraries for ESP32. |
 
 ## Out of scope (this phase)
@@ -34,7 +34,7 @@ wake word, without changing the protocol.
 - Streaming the reply sentence by sentence (a later latency improvement).
 - VPS deployment, TLS (`wss://`).
 - Motors, sensors, battery power.
-- Piper TTS: no longer needed with cloud voices; remove the `piper-tts` dependency added earlier.
+- Piper and edge-tts: not used; remove the `piper-tts` and `edge-tts` dependencies added earlier.
 
 ## Architecture
 
@@ -46,8 +46,8 @@ wake word, without changing the protocol.
  │                          │                  │   UtteranceSegmenter)                │
  │ MAX98357A ◄── play       │ ◄─ audio down ── │   ▼ OpenAI speech-to-text            │
  │ ST7789 LCD ◄── eyes      │ ◄─ state msgs ── │   ▼ OpenAI chat (short history)      │
- └──────────────────────────┘                  │   ▼ split Persian/English → Azure    │
-                                               │     voices (edge-tts fallback)       │
+ └──────────────────────────┘                  │   ▼ pick Persian or English voice    │
+                                               │     → Azure text-to-speech           │
                                                └──────────────────────────────────────┘
 ```
 
@@ -95,10 +95,9 @@ buffer never overflows.
 3. Send the text to the chat model with a system prompt: answer in the language
    the user spoke, short spoken-style replies, no markdown. Keep the last 10 turns
    per connection.
-4. State `speaking`. Split the reply into Persian and English runs (digits and
-   punctuation join the neighbouring run). Synthesize each run with the matching
-   Azure voice as 16 kHz raw PCM (edge-tts output decoded with PyAV if Azure
-   fails). Stream audio to the robot, then `audio_end`.
+4. State `speaking`. Pick the voice: Persian if the reply contains any Persian
+   letters, otherwise English. Synthesize the whole reply with that Azure voice
+   as 16 kHz raw PCM. Stream audio to the robot, then `audio_end`.
 5. State `idle`.
 
 `cancel` at any point stops the turn, discards pending work, and returns to `idle`.
@@ -113,8 +112,8 @@ buffer never overflows.
 | `robot/stt/openai_stt.py` | OpenAI transcription behind the existing `SpeechToText` interface |
 | `robot/agent/openai_agent.py` | Chat with short history behind the existing `Agent` interface |
 | `robot/tts/synth.py` | New `Synthesizer` interface: `synthesize(text) -> AudioChunk` (16 kHz) |
-| `robot/tts/azure.py`, `robot/tts/edge.py` | Azure and edge-tts synthesizers |
-| `robot/tts/mixed.py` | Script splitting + per-language synthesizer, concatenated with short gaps |
+| `robot/tts/azure.py` | Azure synthesizer (16 kHz raw PCM output) |
+| `robot/tts/voice.py` | Voice selection: Persian voice if any Persian letters, else English |
 | `robot/client.py` | Laptop pretend-robot (`robot client`) |
 
 Configuration via environment variables: `OPENAI_API_KEY`, `AZURE_SPEECH_KEY`,
@@ -127,8 +126,7 @@ current OpenAI docs during implementation, not hard-coded from memory.
 
 | Failure | Behaviour |
 |---|---|
-| OpenAI / Azure error or timeout (10 s) | State `error`, play a short pre-generated Persian message («ببخشید، یه مشکلی پیش اومد»), then `idle` |
-| Azure fails | Retry the run with edge-tts before treating it as an error |
+| OpenAI / Azure error or timeout (10 s) | State `error`, play a short Persian message («ببخشید، یه مشکلی پیش اومد») generated once with Azure and cached on disk, then `idle`. If no cached message exists yet, show the error eyes only. |
 | Robot disconnects mid-turn | Drop the session and its chat history; a reconnect starts fresh |
 | Wrong token | Close the connection with a policy-violation code |
 
@@ -163,8 +161,8 @@ Memory budget: roughly 100 KB of ~300 KB free heap.
 
 - Unit tests (pytest, no network): protocol encode/decode; session state machine
   with fake STT / agent / synthesizer (start → listening → thinking → speaking →
-  idle, cancel at each stage, no-speech timeout, error path); script splitting
-  for mixed Persian/English text; token rejection.
+  idle, cancel at each stage, no-speech timeout, error path); voice selection
+  for Persian, English and mixed replies; token rejection.
 - Integration test: run the WebSocket server in-process with fakes and drive it
   with the real `robot client` protocol code, feeding a WAV file instead of the mic.
 - Manual: `robot serve` + `robot client` on the laptop with real OpenAI / Azure keys.
