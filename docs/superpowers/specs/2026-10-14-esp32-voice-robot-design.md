@@ -138,7 +138,7 @@ current OpenAI docs during implementation, not hard-coded from memory.
 |---|---|
 | INMP441 mic (I2S port 0, RX) | BCLK 26, WS 25, SD 33, L/R → GND, VDD 3.3 V |
 | MAX98357A amp (I2S port 1, TX) | BCLK 27, LRC 14, DIN 22, VIN 5 V; 4 Ω 3 W speaker |
-| ST7789 240×240 LCD (VSPI) | SCK 18, MOSI 23, CS 5, DC 2, RST 4, BL 32 |
+| ST7789 240×240 LCD (VSPI) | SCK 18 (module SCL), MOSI 23 (module SDA), CS 5, DC 2, RST 4, BL 32 — SCL/SDA labels are SPI, not I2C |
 | Push-to-talk | BOOT button, GPIO 0 (on the board) |
 
 Power from USB for now.

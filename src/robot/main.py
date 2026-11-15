@@ -10,12 +10,18 @@ import webbrowser
 
 from robot.agent import StubAgent
 from robot.device import (
+    DEFAULT_ST7789_PINS,
+    ST7789_HEIGHT,
+    ST7789_WIDTH,
     DeviceError,
+    Esp32Display,
+    LaptopDisplay,
     LaptopMicrophone,
     LaptopSpeaker,
     describe_host,
 )
 from robot.dictation import LiveDictation
+from robot.display import run_eye_demo
 from robot.live_view import LiveView
 from robot.pipeline import VoicePipeline, load_wav_mono, save_wav_mono
 from robot.stt import FasterWhisperSTT, MockSTT, SttError
@@ -77,6 +83,45 @@ def cmd_status(args: argparse.Namespace) -> int:
         f"STT backend: {args.stt} (whisper model={args.whisper_model}, language={args.language})"
     )
     print("Agent: StubAgent (skipped by `robot listen`)")
+    print(f"LCD simulator: {ST7789_WIDTH}×{ST7789_HEIGHT} ST7789 (`robot eyes`)")
+    print("ST7789 → ESP32 wiring (module SCL/SDA = SPI SCK/MOSI, not I2C):")
+    for module, signal, gpio in DEFAULT_ST7789_PINS.as_table_rows():
+        print(f"  {module:4}  {signal:14} → {gpio}")
+    return 0
+
+
+def cmd_eyes(args: argparse.Namespace) -> int:
+    """Open the Mac ST7789 stand-in and run a blink / look demo."""
+    if args.backend == "esp32":
+        display = Esp32Display()
+        print("ESP32 display stub — printing pin map, then refusing draws:")
+        for module, signal, gpio in display.pins.as_table_rows():
+            print(f"  {module:4}  {signal:14} → GPIO {gpio}")
+        try:
+            run_eye_demo(display, duration_sec=args.seconds)
+        except DeviceError as exc:
+            print(f"Expected stub: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    print(
+        f"Opening {ST7789_WIDTH}×{ST7789_HEIGHT} LCD simulator "
+        f"(scale={args.scale}). Close the window or wait {args.seconds:g}s.",
+        flush=True,
+    )
+    try:
+        display = LaptopDisplay(scale=args.scale, headless=args.headless)
+    except DeviceError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    try:
+        display.set_backlight(True)
+        run_eye_demo(display, duration_sec=args.seconds)
+    except DeviceError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        display.close()
     return 0
 
 
@@ -401,6 +446,40 @@ def build_parser() -> argparse.ArgumentParser:
     _add_backend_flags(p_transcribe)
     p_transcribe.add_argument("file", help="WAV file to transcribe")
     p_transcribe.set_defaults(func=cmd_transcribe)
+
+    def _add_eyes_flags(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--seconds",
+            type=float,
+            default=12.0,
+            help="How long to run the eye demo (default 12)",
+        )
+        p.add_argument(
+            "--scale",
+            type=int,
+            default=2,
+            help="Window scale factor for the laptop simulator (default 2)",
+        )
+        p.add_argument(
+            "--backend",
+            choices=("laptop", "esp32"),
+            default="laptop",
+            help="Display adapter (default: laptop pygame window)",
+        )
+        p.add_argument(
+            "--headless",
+            action="store_true",
+            help="Run without opening a window (framebuffer only; for tests)",
+        )
+        p.set_defaults(func=cmd_eyes)
+
+    p_eyes = sub.add_parser("eyes", help="ST7789 eye demo on the Mac simulator")
+    _add_eyes_flags(p_eyes)
+
+    p_display = sub.add_parser("display", help="LCD helpers")
+    display_sub = p_display.add_subparsers(dest="display_command", required=True)
+    p_display_demo = display_sub.add_parser("demo", help="Same as `robot eyes`")
+    _add_eyes_flags(p_display_demo)
 
     return parser
 

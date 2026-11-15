@@ -12,3 +12,5 @@ __pycache__/
 .cache/
 dist/
 build/
+firmware/**/secrets.h
+firmware/**/.pio/

@@ -12,8 +12,11 @@ Requires **Python 3.12+** and [uv](https://docs.astral.sh/uv/).
 # Install uv if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
-# Check audio devices + backends
+# Check audio devices + backends (+ ST7789 pin map)
 uv run robot status
+
+# LCD eye demo on the Mac (240×240 pygame window — no ESP32 needed)
+uv run robot eyes
 
 # Live mic → Farsi text (no agent). Ctrl+C to stop and confirm.
 uv run robot listen
@@ -69,13 +72,14 @@ uv run robot listen --stt mock --mock-text "سلام"
 
 | Package | Role |
 |---------|------|
-| `robot.device` | `Microphone` / `Speaker` interfaces; `Laptop*` now; `Esp32*` placeholders |
+| `robot.device` | `Microphone` / `Speaker` / `Display` interfaces; `Laptop*` now; `Esp32*` placeholders + ST7789 pin map |
+| `robot.display` | Eye animation demo on top of `Display` |
 | `robot.stt` | Local **faster-whisper** STT (default **Farsi fine-tuned large-v3** + **`fa`**); `MockSTT` for demos |
 | `robot.dictation` | Live rolling transcript, commit on pause |
 | `robot.tts` | Local **macOS `say`** / **espeak-ng**; optional OpenAI TTS if `OPENAI_API_KEY` is set |
 | `robot.agent` | `StubAgent` echo / canned replies — skipped by `robot listen` |
 | `robot.pipeline` | Thin listen → STT → agent → TTS loop |
-| `robot.main` | CLI: `status`, `listen`, `once`, `loop` |
+| `robot.main` | CLI: `status`, `eyes`, `display demo`, `listen`, `once`, `loop` |
 
 ## Architecture (laptop → ESP32 later)
 
@@ -87,13 +91,15 @@ uv run robot listen --stt mock --mock-text "سلام"
       ▲                  │          └──────────────┘          │
       │                  ▼                                    ▼
       │            screen (confirm)                      Speaker
-      │  LaptopMicrophone / LaptopSpeaker today
-      │  Esp32Microphone / Esp32Speaker later
+      │
+      │  Display ──▶ eyes (`robot eyes` / pygame 240×240 today;
+      │               Esp32Display + Adafruit/TFT_eSPI later)
+      │  LaptopMicrophone / LaptopSpeaker / LaptopDisplay today
+      │  Esp32* adapters later
 ```
 
-- Keep **device I/O behind adapters**. Firmware (C++/Arduino or MicroPython on ESP32) should implement the same capture/play contracts — or stream PCM/text to this host over serial/BLE/Wi‑Fi.
+- Keep **device I/O behind adapters**. Firmware (C++/Arduino or MicroPython on ESP32) should implement the same capture/play/draw contracts — or stream PCM/text to this host over serial/BLE/Wi‑Fi.
 - Swap `StubAgent` for a real HTTP/gRPC client when the agent API exists.
-- LCD eye animations are out of scope for phase 1.
 
 ## STT / TTS notes
 
@@ -118,18 +124,36 @@ Other knobs: `ROBOT_TTS_BACKEND`, `ROBOT_TTS_VOICE`, `ROBOT_OPENAI_TTS_VOICE`.
 - **No TTS binary** — install `espeak-ng` or use `--tts mock`.
 - **Missing WAV** — file-not-found error from `--file`.
 
+## ST7789 LCD wiring (ESP32 DevKit defaults)
+
+1.3" color ST7789 panels are usually **240×240**. On these modules the silk labels **SCL / SDA mean SPI SCK / MOSI**, not I2C. Wire DC, CS, RES, and BLK as well.
+
+| Module pin | Signal | ESP32 GPIO |
+|------------|--------|------------|
+| GND | Ground | GND |
+| VCC | 3.3 V power | 3V3 |
+| SCL | SPI SCK | **18** |
+| SDA | SPI MOSI | **23** |
+| RES | Reset | **4** |
+| DC | Data/Command | **2** |
+| CS | Chip Select | **5** |
+| BLK | Backlight | **32** |
+
+Laptop stand-in (no hardware): `uv run robot eyes` opens a 240×240 pygame window with a blink / look-left / look-right demo. Firmware will drive the real panel with Adafruit ST7789 or TFT_eSPI using this pin map.
+
 ## ESP32-ready notes (not implemented yet)
 
 - Prefer **I2S mic + I2S amp/DAC** on ESP32.
 - Firmware options: **Arduino/C++** (ESP-IDF / Arduino-ESP32) or **MicroPython**.
 - Phase-2 bridge ideas: stream 16 kHz mono PCM to this host, or run wake-word / tiny STT on-device and send text only.
-- Keep the Python `Microphone` / `Speaker` interfaces stable so adapters can plug in without rewriting the pipeline.
+- Keep the Python `Microphone` / `Speaker` / `Display` interfaces stable so adapters can plug in without rewriting the pipeline.
 
 ## Project layout
 
 ```
 src/robot/
-  device/     # I/O adapters (laptop, esp32 stub)
+  device/     # I/O adapters (laptop, esp32 stub) + ST7789 pin map
+  display/    # eye animations on Display
   stt/        # speech-to-text (Farsi-pinned Whisper)
   dictation.py
   tts/        # text-to-speech
